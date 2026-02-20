@@ -1,2 +1,2 @@
 # tool1-civ442-Turf
-Repository for my Air Quality engineering course, Tool 1 
+Repository for My Air Quality Engineering Course, Tool 1 
