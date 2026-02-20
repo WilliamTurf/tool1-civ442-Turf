@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Candle CO Exposure Estimator</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial;
+            margin: 40px;
+            background-color: #f4f4f4;
+        }
+
+        .box {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            max-width: 700px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+
+        h2 { text-align: center; }
+
+        label { font-weight: bold; }
+
+        input {
+            width: 100%;
+            padding: 8px;
+            margin: 6px 0 15px 0;
+        }
+
+        button {
+            padding: 10px;
+            width: 100%;
+            font-size: 16px;
+            margin-bottom: 15px;
+            cursor: pointer;
+        }
+
+        #fanBtn.on { background-color: #4CAF50; color: white; }
+        #fanBtn.off { background-color: #ccc; }
+
+        .indicator {
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 10px;
+            background-color: green;
+        }
+
+        #result {
+            margin-top: 20px;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        canvas { margin-top: 25px; }
+
+        .description {
+            background: #eef3ff;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .limits {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+    </style>
+</head>
+
+<body>
+<div class="box">
+
+    <h2>🕯️ Candle CO Exposure (CSTR + ACH Ventilation)</h2>
+
+    <!-- DESCRIPTION BOX -->
+    <div class="description">
+        This tool estimates carbon monoxide (CO) buildup from a burning candle in an indoor room using a well-mixed (CSTR) air model with ventilation. The user inputs the number of wicks, room volume, exposure time, and fan operation to simulate ventilation effects. The tool outputs CO concentration in both mg/m³ and ppm and compares the result against EPA, OSHA, and WHO exposure limits. Users should interpret higher values or red indicators as potentially unsafe conditions requiring improved ventilation or reduced emission sources.
+    </div>
+
+    <label>Ventilation Fan</label>
+    <button id="fanBtn" class="off" onclick="toggleFan()">Fan OFF</button>
+
+    <label>Number of Wicks: <span id="wickDisplay">1</span></label>
+    <input type="range" min="1" max="5" step="1" value="1" id="wicks" oninput="updateWickDisplay()">
+
+    <label>Room Volume (m³) [10–10000]</label>
+    <input type="number" id="volume" min="10" max="10000" value="30">
+
+    <label>Exposure Time (minutes) [0.01–1000]</label>
+    <input type="number" id="time" min="0.01" max="1000" step="0.01" value="60">
+
+    <button onclick="calculateCO()">Calculate CO</button>
+
+    <!-- OUTPUT -->
+    <div id="result"></div>
+
+    <!-- INDICATORS -->
+    <div style="text-align:center; margin-top:15px;">
+        EPA Limit (9 ppm / 10 mg/m³)
+        <span id="epaLight" class="indicator"></span>
+    </div>
+
+    <div style="text-align:center;">
+        OSHA Limit (50 ppm / 55 mg/m³)
+        <span id="oshaLight" class="indicator"></span>
+    </div>
+
+    <div style="text-align:center;">
+        WHO Limit (9 ppm / 10 mg/m³)
+        <span id="whoLight" class="indicator"></span>
+    </div>
+
+    <!-- GRAPH -->
+    <canvas id="coChart"></canvas>
+
+</div>
+
+<script>
+
+let fanOn = false;
+let chart = null;
+
+// toggle fan
+function toggleFan() {
+    fanOn = !fanOn;
+    let btn = document.getElementById("fanBtn");
+
+    if (fanOn) {
+        btn.innerHTML = "Fan ON";
+        btn.className = "on";
+    } else {
+        btn.innerHTML = "Fan OFF";
+        btn.className = "off";
+    }
+}
+
+// update slider label
+function updateWickDisplay() {
+    document.getElementById("wickDisplay").innerText =
+        document.getElementById("wicks").value;
+}
+
+// conversion mg/m3 → ppm (ideal gas approx at 25°C)
+function mgm3_to_ppm(mg) {
+    return mg * 24.45 / 28.01; // MW CO = 28.01 g/mol
+}
+
+// main calculation
+function calculateCO() {
+
+    let Nw = parseFloat(document.getElementById("wicks").value);
+    let V = parseFloat(document.getElementById("volume").value);
+    let t_end = parseFloat(document.getElementById("time").value);
+
+    if (V < 10 || V > 10000 || t_end < 0.01 || t_end > 1000) {
+        alert("Inputs out of bounds");
+        return;
+    }
+
+    let E = 5; // mg/min per wick
+
+    let ACH_on = 3.0;
+    let ACH_off = 0.3;
+
+    let ACH = fanOn ? ACH_on : ACH_off;
+    let k = ACH / 60;
+
+    let G = E * Nw;
+
+    let steps = 100;
+    let time = [];
+    let conc = [];
+
+    for (let i = 0; i <= steps; i++) {
+        let t = (t_end / steps) * i;
+        let C;
+
+        if (k > 0) {
+            C = (G / (V * k)) * (1 - Math.exp(-k * t));
+        } else {
+            C = (G / V) * t;
+        }
+
+        time.push(t);
+        conc.push(C);
+    }
+
+    let finalC = conc[conc.length - 1];
+    let ppm = mgm3_to_ppm(finalC);
+
+    // display results
+    document.getElementById("result").innerHTML =
+        "<b>Final CO Concentration:</b><br>" +
+        finalC.toFixed(2) + " mg/m³<br>" +
+        ppm.toFixed(2) + " ppm";
+
+    // limits
+    let EPA = 10;   // mg/m3
+    let OSHA = 55;  // mg/m3
+    let WHO = 10;   // mg/m3
+
+    // indicator lights
+    document.getElementById("epaLight").style.backgroundColor =
+        finalC > EPA ? "red" : "green";
+
+    document.getElementById("oshaLight").style.backgroundColor =
+        finalC > OSHA ? "red" : "green";
+
+    document.getElementById("whoLight").style.backgroundColor =
+        finalC > WHO ? "red" : "green";
+
+    // graph
+    if (chart !== null) chart.destroy();
+
+    let ctx = document.getElementById('coChart').getContext('2d');
+
+    chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: time,
+            datasets: [{
+                label: 'CO Concentration (mg/m³)',
+                data: conc,
+                fill: false,
+                tension: 0.2
+            }]
+        },
+        options: {
+            scales: {
+                x: { title: { display: true, text: 'Time (minutes)' } },
+                y: { title: { display: true, text: 'CO (mg/m³)' } }
+            }
+        }
+    });
+}
+
+</script>
+
+</body>
+</html>
